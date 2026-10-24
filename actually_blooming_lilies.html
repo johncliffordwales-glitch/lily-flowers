@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Actually Blooming — Lily Bouquet</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#030604;color:#f7eee5}
+body{font-family:Georgia,'Times New Roman',serif}
+main{position:relative;width:100%;height:100%;height:100svh;overflow:hidden;background:radial-gradient(ellipse at 50% 72%,#1a261a 0%,#080c09 48%,#020302 100%)}
+canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+header{position:absolute;z-index:2;top:calc(20px + env(safe-area-inset-top));left:0;right:0;text-align:center;padding:0 12px;pointer-events:none}
+h1{font-size:clamp(27px,7vw,44px);font-weight:400;font-style:italic;margin:0;text-shadow:0 2px 18px #000}
+header p{font:10px ui-monospace,monospace;letter-spacing:.22em;text-transform:uppercase;color:#b0b9a9;margin:9px 0}
+.caption{position:absolute;bottom:calc(82px + env(safe-area-inset-bottom));left:0;right:0;text-align:center;font:10px ui-monospace,monospace;letter-spacing:.14em;color:#91a08b}
+.controls{position:absolute;bottom:calc(18px + env(safe-area-inset-bottom));left:0;right:0;display:flex;justify-content:center;gap:9px;padding:0 10px}
+button{background:#101a12;color:#f0f2e9;border:1px solid #60735a;border-radius:99px;padding:12px 15px;font:12px ui-monospace,monospace}
+button:active{background:#29402a}
+</style>
+</head>
+<body>
+<main>
+<canvas id="scene"></canvas>
+<header><h1>For you, in bloom</h1><p>watch them open, one by one</p></header>
+<div class="caption" id="caption">THE BOUQUET IS WAKING UP</div>
+<div class="controls"><button id="restart">↻ Bloom again</button><button id="pause">Ⅱ Pause</button></div>
+</main>
+<script>
+(() => {
+const canvas=document.getElementById('scene'), ctx=canvas.getContext('2d');
+const caption=document.getElementById('caption'), pauseButton=document.getElementById('pause');
+let W=0,H=0,dpr=1,elapsed=0,last=0,paused=false,raf=0;
+const flowers=[
+ {x:-.25,y:.43,s:.78,color:0,delay:1.5,tilt:-.2},
+ {x:.22,y:.39,s:.70,color:1,delay:3.2,tilt:.18},
+ {x:0,y:.29,s:.95,color:2,delay:4.7,tilt:-.04},
+ {x:-.40,y:.58,s:.50,color:3,delay:6.1,tilt:-.35},
+ {x:.39,y:.56,s:.53,color:4,delay:7.0,tilt:.32},
+ {x:-.10,y:.60,s:.55,color:1,delay:8.1,tilt:-.12},
+ {x:.13,y:.62,s:.52,color:0,delay:9.0,tilt:.13}
+];
+const colors=[
+ {light:'#ffd8e1',mid:'#e87d9c',dark:'#963b60',vein:'#ffe6e9'},
+ {light:'#ffe9f0',mid:'#d99abb',dark:'#79466e',vein:'#fff0f1'},
+ {light:'#fff0d6',mid:'#f0b5c1',dark:'#a34b66',vein:'#fff9e7'},
+ {light:'#ffd0c5',mid:'#d87c70',dark:'#8e433e',vein:'#ffe8d9'},
+ {light:'#fff0a8',mid:'#e6b85e',dark:'#8e6830',vein:'#fff8cf'}
+];
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const smooth=t=>{t=clamp(t,0,1);return t*t*(3-2*t)};
+function resize(){dpr=Math.min(window.devicePixelRatio||1,2);W=innerWidth;H=innerHeight;canvas.width=Math.round(W*dpr);canvas.height=Math.round(H*dpr);ctx.setTransform(dpr,0,0,dpr,0,0)}
+addEventListener('resize',resize);resize();
+function petalPath(len,width){
+ ctx.beginPath();ctx.moveTo(0,0);
+ ctx.bezierCurveTo(-width*.28,-len*.22,-width*.72,-len*.68,-width*.15,-len);
+ ctx.bezierCurveTo(width*.05,-len*1.08,width*.17,-len*1.03,width*.24,-len*.88);
+ ctx.bezierCurveTo(width*.75,-len*.57,width*.48,-len*.18,0,0);ctx.closePath();
+}
+function drawPetal(x,y,angle,len,width,open,c,clock,idx){
+ ctx.save();ctx.translate(x,y);
+ // Closed petals are upright, close to the flower center; opening fans them outward.
+ const spread=(idx-2.5)*.42;
+ const a=angle+spread*(.18+.82*open);
+ ctx.rotate(a);
+ ctx.scale(.42+.58*open,.22+.78*open);
+ const L=len*(.76+.24*open), B=width*(.65+.35*open);
+ const grad=ctx.createLinearGradient(-B*.4,-L*.95,B*.5,0);
+ grad.addColorStop(0,c.light);grad.addColorStop(.38,c.mid);grad.addColorStop(1,c.dark);
+ petalPath(L,B);ctx.fillStyle=grad;ctx.fill();
+ ctx.strokeStyle=c.dark;ctx.lineWidth=.7;ctx.stroke();
+ // Subtle center vein and fine veins make the petals read as organic, not flat triangles.
+ ctx.beginPath();ctx.moveTo(0,-2);ctx.bezierCurveTo(-B*.05,-L*.25,B*.12,-L*.68,B*.04,-L*.92);
+ ctx.strokeStyle=c.vein;ctx.globalAlpha=.7;ctx.lineWidth=.8;ctx.stroke();ctx.globalAlpha=1;
+ for(let k=0;k<3;k++){
+   ctx.beginPath();ctx.moveTo(0,-L*(.25+k*.15));ctx.quadraticCurveTo(B*(.15+k*.08),-L*(.48+k*.13),B*.25,-L*(.61+k*.1));
+   ctx.strokeStyle=c.vein;ctx.globalAlpha=.28;ctx.lineWidth=.55;ctx.stroke();
+ }
+ // Little freckles near the throat.
+ if(open>.45){for(let k=0;k<5;k++){const px=Math.sin(idx*9+k*2.1)*B*.17,py=-L*(.16+k*.045);ctx.beginPath();ctx.ellipse(px,py,1.1,.7,.3,0,Math.PI*2);ctx.fillStyle='#8d3e48';ctx.fill()}}
+ ctx.restore();
+}
+function flower(f,now){
+ const cx=W/2+f.x*Math.min(W*.82,430), cy=H*(f.y*.67+.08);
+ const size=Math.min(W,H)*.145*f.s;
+ const p=smooth((now-f.delay)/5.5);
+ const breathe=Math.sin(now*.9+f.delay)*.018;
+ const open=clamp(p+breathe*p,0,1);
+ const c=colors[f.color];
+ // Calyx, then petals open in a staggered sequence.
+ ctx.save();ctx.translate(cx,cy);ctx.rotate(f.tilt);
+ ctx.fillStyle='#416438';ctx.beginPath();ctx.ellipse(0,0,size*.14,size*.22,0,0,Math.PI*2);ctx.fill();
+ for(let i=0;i<6;i++){
+   const delay=i*.055;
+   const individual=smooth((now-f.delay-delay)/5.0);
+   const angle=(i/6)*Math.PI*2-Math.PI/2;
+   // Alternate long pointed petals with slightly shorter, rounder petals.
+   drawPetal(0,0,angle,size*(1.0+(i%2)*.18),size*(.48+(i%2)*.06),individual,c,now,i);
+ }
+ if(open>.72){
+   const pollen=smooth((open-.72)/.28);
+   ctx.globalAlpha=pollen;
+   for(let i=0;i<6;i++){
+     const a=i*Math.PI/3+.2;
+     const sx=Math.cos(a)*size*.26, sy=Math.sin(a)*size*.26;
+     ctx.beginPath();ctx.moveTo(0,0);ctx.quadraticCurveTo(sx*.5,sy*.5,sx*1.55,sy*1.55);
+     ctx.strokeStyle='#e4b45c';ctx.lineWidth=1.7;ctx.stroke();
+     ctx.beginPath();ctx.ellipse(sx*1.55,sy*1.55,2.6,1.5,a,0,Math.PI*2);ctx.fillStyle='#f3c86c';ctx.fill();
+   }
+   ctx.globalAlpha=1;
+   const g=ctx.createRadialGradient(0,0,1,0,0,size*.25);g.addColorStop(0,'#fff4be');g.addColorStop(1,'#e7b35400');
+   ctx.fillStyle=g;ctx.beginPath();ctx.arc(0,0,size*.25,0,Math.PI*2);ctx.fill();
+ }
+ ctx.restore();
+}
+function leaf(x,y,angle,len,width,alpha=1){
+ ctx.save();ctx.translate(x,y);ctx.rotate(angle);ctx.globalAlpha=alpha;
+ const g=ctx.createLinearGradient(0,0,len,-width);g.addColorStop(0,'#1b3a25');g.addColorStop(.5,'#4e803c');g.addColorStop(1,'#8caf58');
+ ctx.beginPath();ctx.moveTo(0,0);ctx.quadraticCurveTo(len*.36,-width*1.5,len,-width*.15);ctx.quadraticCurveTo(len*.55,width*.5,0,0);ctx.fillStyle=g;ctx.fill();
+ ctx.beginPath();ctx.moveTo(0,0);ctx.quadraticCurveTo(len*.5,-width*.3,len,-width*.15);ctx.strokeStyle='#a6c879';ctx.lineWidth=.65;ctx.stroke();ctx.restore();
+}
+function render(nowMs){
+ if(!paused)raf=requestAnimationFrame(render);
+ const dt=last?Math.min((nowMs-last)/1000,.05):0;last=nowMs;if(!paused)elapsed+=dt;
+ const t=elapsed;ctx.clearRect(0,0,W,H);
+ // Background floating specks, kept subtle.
+ for(let i=0;i<60;i++){const x=(i*137.5+Math.sin(t*.15+i)*12)%W,y=(i*71.7+t*(3+i%4))%H;ctx.fillStyle='#a5bd8c';ctx.globalAlpha=.12;ctx.fillRect(x,y,1,1)}ctx.globalAlpha=1;
+ const baseX=W/2,baseY=H*.84,scale=Math.min(W,H);
+ // Stems rise over the first seconds.
+ const grow=smooth(t/3.2);
+ flowers.forEach((f,i)=>{
+   const tx=baseX+f.x*Math.min(W*.82,430),ty=H*(f.y*.67+.08);
+   const startX=baseX+(i-3)*3;
+   const sway=Math.sin(t*.7+i)*2;
+   ctx.beginPath();ctx.moveTo(startX,baseY);ctx.bezierCurveTo(startX+(tx-startX)*.12,baseY-90*grow,tx-sway,ty+100,tx+sway,ty);
+   ctx.strokeStyle='#426b3b';ctx.lineWidth=2.3;ctx.stroke();
+   for(let j=0;j<3;j++){
+     const q=.28+j*.17,x=startX+(tx-startX)*q,y=baseY+(ty-baseY)*q;
+     leaf(x,y,(i+j)%2?-.85:-2.25,scale*(.055+j*.008),scale*.018,.9);
+   }
+ });
+ // Additional lower foliage gives the bouquet a gathered, full silhouette.
+ for(let i=0;i<16;i++){const x=baseX+(i-7.5)*7,y=baseY-((i*23)%65);leaf(x,y,(i%2?-.65:-2.45),scale*(.045+(i%4)*.008),scale*.016,.8)}
+ flowers.forEach(f=>flower(f,t));
+ // Soil / vase-like shadow at the base.
+ const grad=ctx.createRadialGradient(baseX,baseY,3,baseX,baseY,scale*.28);grad.addColorStop(0,'#34462a55');grad.addColorStop(1,'#00000000');ctx.fillStyle=grad;ctx.fillRect(0,baseY-scale*.25,W,scale*.5);
+ caption.textContent=t<2?'THE BOUQUET IS WAKING UP':t<7?'PETALS UNFURLING…':t<14?'LILIES OPENING IN THE LIGHT':'A BOUQUET, IN FULL BLOOM';
+}
+function restart(){elapsed=0;last=0;paused=false;pauseButton.textContent='Ⅱ Pause';cancelAnimationFrame(raf);raf=requestAnimationFrame(render)}
+document.getElementById('restart').addEventListener('click',restart);
+pauseButton.addEventListener('click',()=>{paused=!paused;pauseButton.textContent=paused?'▶ Resume':'Ⅱ Pause';if(!paused){last=0;cancelAnimationFrame(raf);raf=requestAnimationFrame(render)}});
+raf=requestAnimationFrame(render);
+})();
+</script>
+</body></html>
