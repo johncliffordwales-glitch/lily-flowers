@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ASCII Lily Bouquet</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; width:100%; min-height:100%; background:#030604; color:#d9f7d1; }
+  body { overflow:hidden; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .stage {
+    position:relative; width:100vw; height:100vh; min-height:480px; overflow:hidden;
+    background: radial-gradient(ellipse at 50% 75%, #0a180b 0%, #030604 48%, #010201 100%);
+  }
+  canvas { display:block; width:100%; height:100%; }
+  .heading {
+    position:absolute; top:clamp(18px,4vh,42px); left:50%; transform:translateX(-50%);
+    width:90%; text-align:center; pointer-events:none;
+  }
+  .heading h1 {
+    margin:0; font: italic clamp(25px,4vw,48px)/1.1 Georgia, serif;
+    color:#f4f0d7; letter-spacing:.01em; text-shadow:0 0 24px #b5df9a35;
+  }
+  .heading p { margin:10px 0 0; color:#9dbb91; font-size:clamp(9px,1.2vw,12px); letter-spacing:.28em; text-transform:uppercase; }
+  .controls {
+    position:absolute; bottom:20px; left:50%; transform:translateX(-50%);
+    display:flex; align-items:center; justify-content:center; gap:8px; flex-wrap:wrap;
+    width:calc(100% - 24px); max-width:560px;
+  }
+  button {
+    border:1px solid #476849; color:#dff3d6; background:#0b170eeb; border-radius:999px;
+    padding:10px 15px; font:inherit; font-size:12px; cursor:pointer;
+    transition:background .2s, transform .2s, border-color .2s;
+  }
+  button:hover { background:#18321c; border-color:#8cbf7e; transform:translateY(-1px); }
+  .hint { position:absolute; bottom:76px; width:100%; text-align:center; color:#658168; font-size:10px; letter-spacing:.08em; pointer-events:none; }
+  @media (max-width:600px) { .hint { bottom:105px; } .heading p { letter-spacing:.15em; } }
+</style>
+</head>
+<body>
+<div class="stage">
+  <canvas id="art" aria-label="An animated ASCII bouquet of blooming lilies"></canvas>
+  <div class="heading">
+    <h1>A little bouquet, written in code</h1>
+    <p>watch the flowers bloom</p>
+  </div>
+  <div class="hint">MADE OF CHARACTERS · GROWN ONE PETAL AT A TIME</div>
+  <div class="controls">
+    <button id="replay">↻ Bloom again</button>
+    <button id="pause">Ⅱ Pause</button>
+    <button id="fullscreen">⛶ Fullscreen</button>
+  </div>
+</div>
+<script>
+(() => {
+  const canvas = document.getElementById('art');
+  const ctx = canvas.getContext('2d');
+  const pauseBtn = document.getElementById('pause');
+  let W=0,H=0,dpr=1, start=performance.now(), paused=false, pausedAt=0, elapsedBeforePause=0;
+  const palette = ['#ff5475','#f0a5e8','#fff0cf','#d98a5b','#f6ca68','#c3e7a0'];
+  const flowers = [
+    {x:-.28,y:.48,size:.105,color:1,delay:2.1,angle:-.35},
+    {x:-.13,y:.35,size:.083,color:0,delay:2.7,angle:.12},
+    {x:.03,y:.24,size:.102,color:0,delay:3.5,angle:-.1},
+    {x:.22,y:.42,size:.112,color:2,delay:2.5,angle:.24},
+    {x:.35,y:.32,size:.087,color:3,delay:3.2,angle:-.25},
+    {x:.12,y:.57,size:.075,color:3,delay:3.8,angle:.05},
+    {x:-.39,y:.27,size:.064,color:4,delay:3.4,angle:-.4},
+    {x:.42,y:.53,size:.062,color:4,delay:3.6,angle:.42},
+    {x:-.04,y:.12,size:.052,color:1,delay:4.2,angle:.04},
+    {x:.31,y:.13,size:.05,color:5,delay:4.4,angle:.25},
+    {x:-.22,y:.14,size:.047,color:2,delay:4.6,angle:-.22},
+    {x:.48,y:.19,size:.045,color:5,delay:4.8,angle:.45}
+  ];
+  function resize(){
+    dpr=Math.min(devicePixelRatio||1,2); W=innerWidth; H=innerHeight;
+    canvas.width=Math.floor(W*dpr); canvas.height=Math.floor(H*dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.font=`${Math.max(5,Math.min(8,W/145))}px monospace`;
+  }
+  addEventListener('resize',resize); resize();
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+  const ease=t=>{t=clamp(t,0,1);return t*t*(3-2*t)};
+  function text(x,y,s,color,alpha=1){
+    ctx.globalAlpha=alpha; ctx.fillStyle=color; ctx.fillText(s,x,y); ctx.globalAlpha=1;
+  }
+  function line(x1,y1,x2,y2,color,progress=1,seed=0){
+    const dx=x2-x1,dy=y2-y1,len=Math.hypot(dx,dy), n=Math.max(1,Math.floor(len/4));
+    for(let i=0;i<=n*progress;i++){
+      let t=i/n, x=x1+dx*t, y=y1+dy*t;
+      const wobble=Math.sin(t*22+seed)*1.5;
+      text(x+wobble,y, t>.85?'╱':(i%3===0?'|':'.'), color, .65+.35*Math.sin(t*9+seed)**2);
+    }
+  }
+  function leaf(x,y,angle,len,progress,seed){
+    const n=Math.max(3,Math.floor(len/5));
+    for(let i=0;i<=n*progress;i++){
+      const t=i/n, cx=x+Math.cos(angle)*len*t, cy=y+Math.sin(angle)*len*t;
+      const spread=Math.sin(t*Math.PI)*len*.22;
+      for(const side of [-1,1]){
+        let px=cx+Math.cos(angle+Math.PI/2)*spread*side;
+        let py=cy+Math.sin(angle+Math.PI/2)*spread*side;
+        text(px,py, ((i+side+seed)%3===0?'›':(i%2?'*':':')), '#80d75c',.6+.35*Math.sin(i+seed)**2);
+      }
+    }
+  }
+  function lily(cx,cy,size,color,progress,clock,seed){
+    // Bud first, then six broad ASCII petals open around a glowing center.
+    if(progress<.22){
+      const p=progress/.22;
+      for(let j=0;j<Math.floor(8*p);j++) text(cx+(j%3-1)*size*.09,cy-j*size*.075,'░',color,.7);
+      return;
+    }
+    const open=ease((progress-.18)/.82);
+    const petalCount=6, chars=['*','+','x','·',':','*'];
+    for(let p=0;p<petalCount;p++){
+      const a=p*Math.PI*2/petalCount+seed;
+      const reach=size*(.35+.72*open);
+      const width=size*(.12+.27*open);
+      const steps=24;
+      for(let i=0;i<steps;i++){
+        const t=i/steps;
+        const r=reach*t;
+        const breadth=Math.sin(t*Math.PI)*width;
+        for(let side=-1;side<=1;side++){
+          const alongX=Math.cos(a)*r+Math.cos(a+Math.PI/2)*breadth*side;
+          const alongY=Math.sin(a)*r+Math.sin(a+Math.PI/2)*breadth*side;
+          let ch=chars[(i+p+side+chars.length)%chars.length];
+          const shimmer=.72+.28*Math.sin(clock*2+i*.9+p*2+seed)**2;
+          text(cx+alongX,cy+alongY,ch,color,shimmer*(.65+.35*open));
+        }
+      }
+    }
+    for(let k=0;k<18;k++){
+      const a=k*2.399+seed, r=size*(.02+(k%5)*.018);
+      text(cx+Math.cos(a)*r,cy+Math.sin(a)*r,k%3===0?'✦':'.','#fff5bd',.9);
+    }
+  }
+  function draw(ms){
+    if(!paused) requestAnimationFrame(draw);
+    const t=(ms-start)/1000-elapsedBeforePause;
+    ctx.clearRect(0,0,W,H);
+    // Subtle drifting specks
+    for(let i=0;i<110;i++){
+      let x=(i*97.31+Math.sin(t*.25+i)*17)%W;
+      let y=(i*53.17+t*(5+i%7))%H;
+      text(x,y,'.','#547c4d',.12+.12*Math.sin(i+t)**2);
+    }
+    const scale=Math.min(W/900,H/650);
+    const baseX=W/2, baseY=H*.78;
+    const stemProg=ease(t/2.8);
+    // Stems fan out from the bouquet's base.
+    flowers.forEach((f,i)=>{
+      const topX=baseX+f.x*W*.58, topY=H*(f.y*.7+.08);
+      const sway=Math.sin(t*.8+i)*3;
+      line(baseX+(i-5)*2,baseY,topX+sway,topY,'#65c84b',stemProg,i);
+      if(t>1.2){
+        const leafProgress=ease((t-1.2)/1.8);
+        for(let l=0;l<3;l++){
+          const q=.3+l*.19;
+          const lx=baseX+(topX-baseX)*q;
+          const ly=baseY+(topY-baseY)*q;
+          if((i+l)%2===0) leaf(lx,ly, -1.9+(i%4)*.2, W*.035*(.5+l*.2),leafProgress,i+l);
+          else leaf(lx,ly, -1.2-(i%3)*.2, W*.028*(.5+l*.2),leafProgress,i+l);
+        }
+      }
+      const fp=ease((t-f.delay)/1.35);
+      if(fp>0) lily(topX+sway,topY,f.size*Math.min(W,H)*1.5,palette[f.color],fp,t,i*.7);
+    });
+    // Little gathered stems at the bottom.
+    for(let i=0;i<34;i++){
+      let x=baseX+(i-16)*4, y=baseY+Math.sin(i*2)*5;
+      text(x,y, i%4===0?'╱':(i%3===0?'*':'.'),'#75d34e',.75);
+    }
+    // gentle glow at the base
+    const grad=ctx.createRadialGradient(baseX,baseY,2,baseX,baseY,Math.min(W,H)*.24);
+    grad.addColorStop(0,'#54d83a12'); grad.addColorStop(1,'#00000000');
+    ctx.fillStyle=grad;ctx.fillRect(0,0,W,H);
+  }
+  requestAnimationFrame(draw);
+  document.getElementById('replay').addEventListener('click',()=>{start=performance.now();elapsedBeforePause=0; if(paused){paused=false;pauseBtn.textContent='Ⅱ Pause';requestAnimationFrame(draw);}});
+  pauseBtn.addEventListener('click',()=>{
+    if(!paused){paused=true;pausedAt=performance.now();pauseBtn.textContent='▶ Resume';}
+    else {elapsedBeforePause+=(performance.now()-pausedAt)/1000;paused=false;pauseBtn.textContent='Ⅱ Pause';requestAnimationFrame(draw);}
+  });
+  document.getElementById('fullscreen').addEventListener('click',async()=>{
+    try { if(!document.fullscreenElement) await document.querySelector('.stage').requestFullscreen(); else await document.exitFullscreen(); } catch(e) {}
+  });
+})();
+</script>
+</body>
+</html>
